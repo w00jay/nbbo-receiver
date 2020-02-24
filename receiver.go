@@ -3,6 +3,7 @@ package main
 // k run --restart=Never --image=woojay/nbbo-receiver --port=2000 --expose receiver
 
 import (
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -10,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/go-redis/redis/v7"
 )
 
 type msgFormat struct {
@@ -25,13 +28,18 @@ type msgFormat struct {
 }
 
 type nbboData struct {
-	Symbol      string
-	Time        string
-	BidPrice    string
-	BidExchange string
-	AskPrice    string
-	AskExchange string
+	Symbol      string `json:"symbol,omitempty"`
+	Time        string `json:"time,omitempty"`
+	BidPrice    string `json:"bidprice,omitempty"`
+	BidExchange string `json:"bidexchange,omitempty"`
+	AskPrice    string `json:"askprice,omitempty"`
+	AskExchange string `json:"askexchange,omitempty"`
 }
+
+const timeFormat = "03:04:05"
+
+var nbboNow = nbboData{"", "00:00:00.001", "-1", "", "10000000", ""}
+var nbboStore = map[string]nbboData{}
 
 func decode(s string) msgFormat {
 	t := strings.Split(s, ",")
@@ -49,12 +57,28 @@ func decode(s string) msgFormat {
 	}
 }
 
-const timeFormat = "03:04:05"
-
-var nbboNow = nbboData{"", "00:00:00.001", "-1", "", "10000000", ""}
-
 func main() {
 
+	// Start REDIS
+	client := redis.NewClient(&redis.Options{
+		Addr: "redis-master.default.svc.cluster.local:6379",
+		// Password: "", // no password set
+		DialTimeout: 10 * time.Second,
+		MaxRetries:  3,
+		DB:          0, // use default DB
+	})
+	err := client.Set("testkey", "testvalue", 0).Err()
+	if err != nil {
+		panic(err)
+	}
+
+	val, err := client.Get("testkey").Result()
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("testkey", val)
+
+	// Serve / route
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "{result: ok}")
 
@@ -76,7 +100,7 @@ func main() {
 
 		if decodedTime == nbboNowTime {
 
-			fmt.Println("= Same time group")
+			// fmt.Println("= Same time group")
 
 			decodedBidPrice, _ := strconv.ParseFloat(decoded.BidPrice, 64)
 			nbboNowBidPrice, _ := strconv.ParseFloat(nbboNow.BidPrice, 64)
@@ -100,14 +124,56 @@ func main() {
 				nbboNow.AskExchange = decoded.AskExchange
 			}
 
-			// fmt.Println("NBBO now", nbboNow.Symbol, " : ", nbboNow.BidPrice, "@", nbboNow.AskPrice, "time: ", nbboNow.Time)
-
-			//// If new time group, get set up for a new cycle
+			//// If new time, get set up for a new time group
 		} else if decodedTime.After(nbboNowTime) {
 
-			// fmt.Println("+ New time group")
 			// The nbboNow has the NBBO for the nbboNow.Symbol @ nbboNow.Time
 			fmt.Println("NBBO ", nbboNow.Symbol, " : ", nbboNow.BidPrice, "@", nbboNow.AskPrice, "time: ", nbboNow.Time)
+
+			// Save the latest NBBO
+			msg, err := json.Marshal(&nbboNow)
+			if err != nil {
+				panic(err)
+			}
+
+			sendErr := client.Set(nbboNow.Symbol, msg, 0).Err()
+			if err != nil {
+				panic(sendErr)
+			}
+
+			// err := client.Set(nbboNow.Symbol, nbboNow.BidPrice, 0).Err()
+			// if err != nil {
+			// 	panic(err)
+			// }
+
+			// Debug REDIS
+			val, err := client.Get(nbboNow.Symbol).Result()
+			if err != nil {
+				panic(err)
+			}
+			temp := []byte(val)
+			decodedMsg := nbboData{}
+			err = json.Unmarshal(temp, &decodedMsg)
+			if err != nil {
+				return
+			}
+			fmt.Println("NBBO Decoded", decodedMsg.Symbol, " \t: ", decodedMsg.BidPrice, "@", decodedMsg.AskPrice, "time: ", decodedMsg.Time)
+
+			// val, err := client.Get(nbboNow.Symbol).Result()
+			// if err != nil {
+			// 	panic(err)
+			// }
+			// fmt.Println("SYMBOL: ", val)
+
+			// DEBUG In-memory
+			// nbboStore[nbboNow.Symbol] = nbboNow
+			// fmt.Println("---NBBO Store---")
+			// for symbol, nbbo := range nbboStore {
+			// 	if len(symbol) != 0 {
+			// 		fmt.Println("NBBO ", symbol, " \t: ", nbbo.BidPrice, "@", nbbo.AskPrice, "time: ", nbboNow.Time)
+			// 	}
+			// }
+			// fmt.Println("----------------")
 
 			// Reset the nbboNow
 			nbboNow.Time = decoded.Time
@@ -120,5 +186,4 @@ func main() {
 	})
 
 	log.Fatal(http.ListenAndServe(":2000", nil))
-
 }

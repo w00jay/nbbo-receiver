@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  creationTimestamp: null
+  labels:
+    run: receiver
+    redis-client: "true"
+  name: receiver
+spec:
+  containers:
+  - image: woojay/nbbo-receiver
+    name: receiver
+    ports:
+    - containerPort: 2000
+    resources: {}
+  dnsPolicy: ClusterFirst
+  restartPolicy: Never
+status: {}

@@ -2,6 +2,7 @@ FROM golang:latest as builder
 LABEL maintainer="Woojay Poynter <h770nul@gmail.com>"
 WORKDIR /app
 
+COPY go.sum ./
 COPY go.mod ./
 RUN go mod download
 COPY . .
