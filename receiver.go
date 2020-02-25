@@ -13,6 +13,9 @@ import (
 	"time"
 
 	"github.com/go-redis/redis/v7"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 type msgFormat struct {
@@ -40,6 +43,11 @@ const timeFormat = "03:04:05"
 
 var nbboNow = nbboData{"", "00:00:00.001", "-1", "", "10000000", ""}
 var nbboStore = map[string]nbboData{}
+
+var nbboProcessed = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "receiver_processed_nbbo_total",
+	Help: "The total number of processed events",
+})
 
 func decode(s string) msgFormat {
 	t := strings.Split(s, ",")
@@ -81,6 +89,9 @@ func main() {
 	// Serve / route
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "{result: ok}")
+
+		// Prom counter
+		nbboProcessed.Inc()
 
 		// Get
 		body, err := ioutil.ReadAll(r.Body)
@@ -159,22 +170,6 @@ func main() {
 			}
 			fmt.Println("NBBO Decoded", decodedMsg.Symbol, " \t: ", decodedMsg.BidPrice, "@", decodedMsg.AskPrice, "time: ", decodedMsg.Time)
 
-			// val, err := client.Get(nbboNow.Symbol).Result()
-			// if err != nil {
-			// 	panic(err)
-			// }
-			// fmt.Println("SYMBOL: ", val)
-
-			// DEBUG In-memory
-			// nbboStore[nbboNow.Symbol] = nbboNow
-			// fmt.Println("---NBBO Store---")
-			// for symbol, nbbo := range nbboStore {
-			// 	if len(symbol) != 0 {
-			// 		fmt.Println("NBBO ", symbol, " \t: ", nbbo.BidPrice, "@", nbbo.AskPrice, "time: ", nbboNow.Time)
-			// 	}
-			// }
-			// fmt.Println("----------------")
-
 			// Reset the nbboNow
 			nbboNow.Time = decoded.Time
 			nbboNow.Symbol = decoded.Symbol
@@ -184,6 +179,10 @@ func main() {
 			nbboNow.AskExchange = decoded.AskExchange
 		}
 	})
+
+	// Prometheus
+	// k port-forward svc/pro-prometheus-server  9090:80
+	http.Handle("/metrics", promhttp.Handler())
 
 	log.Fatal(http.ListenAndServe(":2000", nil))
 }
