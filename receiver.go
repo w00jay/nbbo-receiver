@@ -157,23 +157,6 @@ func main() {
 			// 	panic(err)
 			// }
 
-			// // Debug REDIS
-			// popRes := rdsClient.RPop(nbboNow.Symbol)
-			// if popRes.Err() != nil {
-			// 	panic(popRes.Err())
-			// }
-			// temp := []byte(popRes.Val())
-			// decodedMsg := nbboData{}
-			// err = json.Unmarshal(temp, &decodedMsg)
-			// if err != nil {
-			// 	return
-			// }
-			// pushRes = rdsClient.RPush(nbboNow.Symbol, msg)
-			// if pushRes.Err() != nil {
-			// 	panic(pushRes.Err())
-			// }
-			// fmt.Println("NBBO Decoded", decodedMsg.Symbol, " \t: ", decodedMsg.BidPrice, "@", decodedMsg.AskPrice, "time: ", decodedMsg.Time)
-
 			// Reset the nbboNow
 			nbboNow.Time = decoded.Time
 			nbboNow.Symbol = decoded.Symbol
@@ -182,6 +165,33 @@ func main() {
 			nbboNow.AskPrice = decoded.AskPrice
 			nbboNow.AskExchange = decoded.AskExchange
 		}
+	})
+
+	http.HandleFunc("/fill", func(w http.ResponseWriter, r *http.Request) {
+
+		q := r.URL.Query()
+
+		reqSymbol, ok := q["symbol"]
+		if !ok || len(reqSymbol) == 0 {
+			fmt.Fprintf(w, "Missing symbol"+r.URL.RequestURI()) // Pseudo 400
+			log.Println("Missing symbol")
+		}
+
+		reqBid, ok := q["bid"]
+		if !ok || len(reqBid) == 0 {
+			fmt.Fprintf(w, "Missing bid price"+r.URL.RequestURI())
+			log.Println("Missing bid")
+		}
+
+		reqQuantity, ok := q["quantity"]
+		if !ok || len(reqQuantity) == 0 {
+			fmt.Fprintf(w, "Missing quantity"+r.URL.RequestURI())
+			log.Println("Missing quantity")
+		}
+
+		w.WriteHeader(200)
+		w.Write([]byte("Good query received:" + r.URL.RawQuery + "<br>" + "Symbol: " + reqSymbol[0] + " Bid: " + reqBid[0] + " Qty: " + reqQuantity[0]))
+		log.Println("Good query received:" + r.URL.RawQuery + "<br>" + "Symbol: " + reqSymbol[0] + " Bid: " + reqBid[0] + " Qty: " + reqQuantity[0])
 	})
 
 	// Prometheus
