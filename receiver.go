@@ -68,23 +68,23 @@ func decode(s string) msgFormat {
 func main() {
 
 	// Start REDIS
-	client := redis.NewClient(&redis.Options{
+	rdsClient := redis.NewClient(&redis.Options{
 		Addr: "redis-master.default.svc.cluster.local:6379",
 		// Password: "", // no password set
 		DialTimeout: 10 * time.Second,
 		MaxRetries:  3,
 		DB:          0, // use default DB
 	})
-	err := client.Set("testkey", "testvalue", 0).Err()
-	if err != nil {
-		panic(err)
+	pushRes := rdsClient.RPush("testkey", "testvalue")
+	if pushRes.Err() != nil {
+		panic(pushRes.Err())
 	}
 
-	val, err := client.Get("testkey").Result()
-	if err != nil {
-		panic(err)
+	popRes := rdsClient.RPop("testkey")
+	if popRes.Err() != nil {
+		panic(popRes.Err())
 	}
-	fmt.Println("testkey", val)
+	fmt.Println("testkey", popRes.Val())
 
 	// Serve / route
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -147,28 +147,32 @@ func main() {
 				panic(err)
 			}
 
-			sendErr := client.Set(nbboNow.Symbol, msg, 0).Err()
-			if err != nil {
-				panic(sendErr)
+			pushRes := rdsClient.RPush(nbboNow.Symbol, msg)
+			if pushRes.Err() != nil {
+				panic(pushRes.Err())
 			}
 
-			// err := client.Set(nbboNow.Symbol, nbboNow.BidPrice, 0).Err()
+			// err := rdsClient.Set(nbboNow.Symbol, nbboNow.BidPrice, 0).Err()
 			// if err != nil {
 			// 	panic(err)
 			// }
 
-			// Debug REDIS
-			val, err := client.Get(nbboNow.Symbol).Result()
-			if err != nil {
-				panic(err)
-			}
-			temp := []byte(val)
-			decodedMsg := nbboData{}
-			err = json.Unmarshal(temp, &decodedMsg)
-			if err != nil {
-				return
-			}
-			fmt.Println("NBBO Decoded", decodedMsg.Symbol, " \t: ", decodedMsg.BidPrice, "@", decodedMsg.AskPrice, "time: ", decodedMsg.Time)
+			// // Debug REDIS
+			// popRes := rdsClient.RPop(nbboNow.Symbol)
+			// if popRes.Err() != nil {
+			// 	panic(popRes.Err())
+			// }
+			// temp := []byte(popRes.Val())
+			// decodedMsg := nbboData{}
+			// err = json.Unmarshal(temp, &decodedMsg)
+			// if err != nil {
+			// 	return
+			// }
+			// pushRes = rdsClient.RPush(nbboNow.Symbol, msg)
+			// if pushRes.Err() != nil {
+			// 	panic(pushRes.Err())
+			// }
+			// fmt.Println("NBBO Decoded", decodedMsg.Symbol, " \t: ", decodedMsg.BidPrice, "@", decodedMsg.AskPrice, "time: ", decodedMsg.Time)
 
 			// Reset the nbboNow
 			nbboNow.Time = decoded.Time
@@ -184,5 +188,6 @@ func main() {
 	// k port-forward svc/pro-prometheus-server  9090:80
 	http.Handle("/metrics", promhttp.Handler())
 
+	defer rdsClient.Close()
 	log.Fatal(http.ListenAndServe(":2000", nil))
 }
